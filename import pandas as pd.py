@@ -5,18 +5,19 @@ from gender_guesser.detector import Detector
 from unidecode import unidecode
 
 # ===============================
-# Configuration de la page
+# Configuration
 # ===============================
 st.set_page_config(page_title="SF Genre Cleaner", layout="wide")
 
 st.title("🧹 Salesforce Genre Cleaner")
 st.write(
-    "Cette application identifie le genre (Male / Female uniquement) "
-    "à partir de la colonne **Nom_complet**."
+    "Cette application fusionne **Prénom + Nom** en `Nom_complet`, "
+    "puis identifie le genre (Male / Female uniquement) "
+    "à partir de `Nom_complet`."
 )
 
 # ===============================
-# Upload du fichier
+# Upload
 # ===============================
 uploaded_file = st.file_uploader(
     "📤 Upload ton fichier CSV Salesforce",
@@ -44,7 +45,8 @@ st.dataframe(df.head(20), use_container_width=True)
 st.subheader("Sélection des colonnes")
 
 col_id = st.selectbox("Colonne ID (Id constituant)", df.columns)
-col_nom_complet = st.selectbox("Colonne Nom_complet", df.columns)
+col_prenom = st.selectbox("Colonne Prénom", df.columns)
+col_nom = st.selectbox("Colonne Nom", df.columns)
 
 default_gender = st.radio(
     "Valeur par défaut si prénom inconnu",
@@ -54,7 +56,7 @@ default_gender = st.radio(
 )
 
 # ===============================
-# Fonction de détection
+# Détection Genre
 # ===============================
 detector = Detector(case_sensitive=False)
 
@@ -63,10 +65,7 @@ def detect_gender_from_nom_complet(nom_complet):
     if pd.isna(nom_complet) or str(nom_complet).strip() == "":
         return default_gender
 
-    # Extraction du premier mot (prénom supposé)
     prenom = str(nom_complet).strip().split()[0]
-
-    # Suppression des accents
     prenom = unidecode(prenom)
 
     result = detector.get_gender(prenom)
@@ -79,28 +78,36 @@ def detect_gender_from_nom_complet(nom_complet):
 # ===============================
 # Lancer le pipeline
 # ===============================
-if st.button("🚀 Lancer l'identification du genre"):
+if st.button("🚀 Lancer le traitement"):
 
-    # Création du dataframe final (3 colonnes uniquement)
-    df_final = df[[col_id, col_nom_complet]].copy()
-    df_final.rename(columns={col_id: "Id constituant",
-                             col_nom_complet: "Nom_complet"}, inplace=True)
+    # 1️⃣ Création Nom_complet
+    df["Nom_complet"] = (
+        df[col_prenom].fillna("").astype(str).str.strip()
+        + " "
+        + df[col_nom].fillna("").astype(str).str.strip()
+    )
 
-    # Application détection
+    df["Nom_complet"] = df["Nom_complet"].str.replace(r"\s+", " ", regex=True).str.strip()
+
+    # 2️⃣ Création DataFrame final (3 colonnes uniquement)
+    df_final = df[[col_id, "Nom_complet"]].copy()
+    df_final.rename(columns={col_id: "Id constituant"}, inplace=True)
+
+    # 3️⃣ Identification du genre basée EXCLUSIVEMENT sur Nom_complet
     df_final["Genre"] = df_final["Nom_complet"].apply(detect_gender_from_nom_complet)
 
-    # Suppression lignes sans ID
+    # 4️⃣ Suppression lignes sans ID
     df_final = df_final[df_final["Id constituant"].notna()].copy()
 
     st.success("✅ Traitement terminé.")
 
-    st.subheader("Résultat")
+    st.subheader("Résultat final (3 colonnes)")
     st.dataframe(df_final.head(50), use_container_width=True)
 
-    st.subheader("Statistiques Genre")
+    st.subheader("Répartition Genre")
     st.write(df_final["Genre"].value_counts())
 
-    # Export CSV
+    # Export
     output = BytesIO()
     df_final.to_csv(output, index=False, encoding="utf-8-sig")
 
